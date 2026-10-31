@@ -4,6 +4,59 @@
 [![Open Collective](https://img.shields.io/badge/Open%20Collective-support-7FADF2?logo=opencollective&logoColor=white)](https://opencollective.com/parismxas)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
 
+> **This fork is also the Debian installer of fastroute.**
+> It is [parisxmas/fastroute](https://github.com/parisxmas/fastroute) plus one
+> script, [`scripts/build-deb.sh`](scripts/build-deb.sh), on the `deb` branch:
+> it builds a `.deb` that installs the `fastroute` command in `/usr/bin`. The
+> router itself is unchanged; report router issues upstream.
+
+## Debian / Ubuntu package
+
+One package for **Debian 11 (bullseye), Ubuntu 20.04 (focal) and every newer
+release**: the binary is linked against glibc 2.17 with
+[cargo-zigbuild](https://github.com/rust-cross/cargo-zigbuild), and the build
+stops if it would need a glibc newer than 2.31.
+
+Build requirements, once:
+
+```sh
+sudo apt install cargo dpkg-dev binutils git
+cargo install --locked cargo-zigbuild      # 0.21.8 with the rustc 1.85 of Debian 13
+# zig 0.13 or newer from https://ziglang.org/download/,
+# e.g. unpacked in ~/.local/opt with a link in ~/.local/bin/zig
+```
+
+Build and install:
+
+```sh
+git clone -b deb https://github.com/gianlucarenzi/fastroute
+cd fastroute
+scripts/build-deb.sh                       # -> dist/fastroute_<version>_<arch>.deb
+sudo apt install ./dist/fastroute_*.deb
+fastroute --version
+```
+
+The same `.deb` can be copied to and installed on the other machines.
+`scripts/build-deb.sh --native` builds with the system toolchain instead
+(no zig needed), but that package only installs on systems with the same glibc
+as the build machine or newer.
+
+Package contents: `/usr/bin/fastroute` (release build, stripped) and
+`/usr/share/doc/fastroute/` (copyright, NOTICE, README, changelog).
+Remove it with `sudo apt remove fastroute`.
+
+Following a new upstream release:
+
+```sh
+git remote add upstream https://github.com/parisxmas/fastroute   # once
+git fetch upstream
+git checkout main && git merge --ff-only upstream/main
+git checkout deb && git rebase main
+scripts/build-deb.sh
+```
+
+---
+
 **PCB autorouter for KiCad and Specctra DSN** — a Rust port of the
 [Freerouting](https://github.com/freerouting/freerouting) PCB autorouter.
 (Not related to the FastRoute global router for IC design used in OpenROAD.)

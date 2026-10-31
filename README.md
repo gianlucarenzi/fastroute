@@ -46,7 +46,25 @@ fastroute --version
 The same `.deb` can be copied to and installed on the other machines.
 `scripts/build-deb.sh --native` builds with the system toolchain instead
 (no zig needed), but that package only installs on systems with the same glibc
-as the build machine or newer.
+as the build machine or newer. `--arch amd64|arm64|ppc64el|ppc64` builds for
+another architecture (with `--native` through the gcc cross toolchain, e.g.
+`gcc-powerpc64-linux-gnu`, plus `rustup target add <triple>`; ppc64 big
+endian only this way).
+
+### Packages built by GitHub Actions
+
+Pushing a tag `vX.Y.Z` (equal to the version in `Cargo.toml`) runs
+[`.github/workflows/deb.yml`](.github/workflows/deb.yml), which builds the
+packages for **amd64** (x86_64), **arm64** (aarch64), **ppc64el** (powerpc64
+little endian) and **ppc64** (powerpc64 big endian) and keeps them as
+artifacts of the run (Actions tab → the run → Artifacts). They are built in an
+Ubuntu 20.04 container with the gcc cross toolchains
+(`scripts/build-deb.sh --native --arch <arch>`, glibc 2.31 at most), and each
+one is checked by routing a test board (under qemu for the non-x86 ones).
+
+```sh
+git tag v0.1.14 && git push origin v0.1.14
+```
 
 Package contents: `/usr/bin/fastroute` (release build, stripped) and
 `/usr/share/doc/fastroute/` (copyright, NOTICE, README, changelog).

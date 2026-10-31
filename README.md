@@ -6,8 +6,7 @@
 
 > **This fork is also the Debian installer of fastroute.**
 > It is [parisxmas/fastroute](https://github.com/parisxmas/fastroute) plus one
-> script, [`scripts/build-deb.sh`](scripts/build-deb.sh), on the `deb` branch:
-> it builds a `.deb` that installs the `fastroute` command in `/usr/bin`. The
+> script, [`scripts/build-deb.sh`](scripts/build-deb.sh), that builds a `.deb` that installs the `fastroute` command in `/usr/bin`. The
 > router itself is unchanged; report router issues upstream.
 
 ## Debian / Ubuntu package
@@ -37,7 +36,7 @@ install it need nothing else.
 Build and install:
 
 ```sh
-git clone -b deb https://github.com/gianlucarenzi/fastroute
+git clone https://github.com/gianlucarenzi/fastroute
 cd fastroute
 scripts/build-deb.sh                       # -> dist/fastroute_<version>_<arch>.deb
 sudo apt install ./dist/fastroute_*.deb
@@ -58,8 +57,7 @@ Following a new upstream release:
 ```sh
 git remote add upstream https://github.com/parisxmas/fastroute   # once
 git fetch upstream
-git checkout main && git merge --ff-only upstream/main
-git checkout deb && git rebase main
+git merge upstream/main
 scripts/build-deb.sh
 ```
 

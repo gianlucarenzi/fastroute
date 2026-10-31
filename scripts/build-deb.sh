@@ -9,56 +9,86 @@
 #   cargo install --locked cargo-zigbuild
 #   zig from https://ziglang.org/download/ (0.13 or newer)
 #
-# --native builds with the system toolchain instead: the package then needs
-# the glibc of the build machine (written in Depends, so apt refuses it on an
-# older system).
+# --native builds with the system gcc toolchain instead: the package then
+# needs the glibc of that toolchain (written in Depends, so apt refuses it on
+# an older system). With --arch of another architecture it uses the gcc cross
+# toolchain (e.g. gcc-powerpc64le-linux-gnu) and needs the Rust target
+# installed (rustup target add <triple>).
 #
-# The highest glibc symbol version used by the binary is checked against
-# MAX_GLIBC (default 2.31, Debian 11 and Ubuntu 20.04) and written in the
-# package Depends as the minimum libc6 version.
+# --arch ARCH builds for a Debian architecture other than the build machine:
+#   amd64 (x86_64), arm64 (aarch64), ppc64el (powerpc64 little endian),
+#   ppc64 (powerpc64 big endian; --native only, zig cannot link it)
 #
-# Usage: scripts/build-deb.sh [--native]   -> dist/fastroute_<version>_<arch>.deb
+# The highest glibc symbol version used by the binary is written in the
+# package Depends as the minimum libc6 version. It is checked against
+# MAX_GLIBC (default 2.31, Debian 11 and Ubuntu 20.04) for cargo-zigbuild
+# builds, and for --native builds when MAX_GLIBC is set.
+#
+# Usage: scripts/build-deb.sh [--native] [--arch ARCH]
+#          -> dist/fastroute_<version>_<arch>.deb
 # Install: sudo apt install ./dist/fastroute_<version>_<arch>.deb
 set -eu
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 TARGET_DIR=${CARGO_TARGET_DIR:-$ROOT/target}
 GLIBC=${GLIBC:-2.17}            # glibc linked against by cargo-zigbuild
+CHECK_GLIBC=${MAX_GLIBC:+1}     # MAX_GLIBC given: check it in --native too
 MAX_GLIBC=${MAX_GLIBC:-2.31}    # oldest system the package must run on
 NATIVE=0
+ARCH=""
 
-for arg in "$@"; do
-    case "$arg" in
-        --native) NATIVE=1 ;;
-        -h|--help) sed -n '2,24p' "$0"; exit 0 ;;
-        *) echo "unknown option: $arg (see --help)" >&2; exit 2 ;;
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --native) NATIVE=1; shift ;;
+        --arch) [ $# -ge 2 ] || { echo "--arch needs a value" >&2; exit 2; }
+                ARCH=$2; shift 2 ;;
+        -h|--help) awk 'NR > 1 && /^#/ { print; next } NR > 1 { exit }' "$0"; exit 0 ;;
+        *) echo "unknown option: $1 (see --help)" >&2; exit 2 ;;
     esac
 done
+[ "$NATIVE" = 1 ] || CHECK_GLIBC=1
 
 PATH="$PATH:$HOME/.local/bin:$HOME/.cargo/bin"
 export PATH
 
-for tool in cargo dpkg-deb dpkg objdump; do
+for tool in cargo dpkg-deb dpkg readelf; do
     command -v "$tool" >/dev/null 2>&1 || {
         echo "error: $tool not found" >&2; exit 1; }
 done
 
 VERSION=$(sed -n 's/^version *= *"\(.*\)"/\1/p' "$ROOT/Cargo.toml" | head -n 1)
 [ -n "$VERSION" ] || { echo "error: no version in Cargo.toml" >&2; exit 1; }
-ARCH=$(dpkg --print-architecture)
+HOST_ARCH=$(dpkg --print-architecture)
+ARCH=${ARCH:-$HOST_ARCH}
 case "$ARCH" in
-    amd64) TRIPLE=x86_64-unknown-linux-gnu ;;
-    arm64) TRIPLE=aarch64-unknown-linux-gnu ;;
+    amd64)   TRIPLE=x86_64-unknown-linux-gnu;      GNU=x86_64-linux-gnu ;;
+    arm64)   TRIPLE=aarch64-unknown-linux-gnu;     GNU=aarch64-linux-gnu ;;
+    ppc64el) TRIPLE=powerpc64le-unknown-linux-gnu; GNU=powerpc64le-linux-gnu ;;
+    ppc64)   TRIPLE=powerpc64-unknown-linux-gnu;   GNU=powerpc64-linux-gnu ;;
     *) echo "error: architecture $ARCH not supported" >&2; exit 1 ;;
 esac
 
 # --- build ---------------------------------------------------------------
 cd "$ROOT"
-if [ "$NATIVE" = 1 ]; then
+if [ "$NATIVE" = 1 ] && [ "$ARCH" = "$HOST_ARCH" ]; then
     echo "Building fastroute $VERSION with the system toolchain..."
     CARGO_PROFILE_RELEASE_STRIP=symbols cargo build --release -p fastroute
     BIN="$TARGET_DIR/release/fastroute"
+    HOW="system toolchain"
+elif [ "$NATIVE" = 1 ]; then
+    command -v "$GNU-gcc" >/dev/null 2>&1 || {
+        echo "error: $GNU-gcc not found (apt install gcc-$GNU)" >&2; exit 1; }
+    echo "Building fastroute $VERSION for $TRIPLE with $GNU-gcc..."
+    UPPER=$(echo "$TRIPLE" | tr 'a-z-' 'A-Z_')
+    LOWER=$(echo "$TRIPLE" | tr '-' '_')
+    env "CARGO_TARGET_${UPPER}_LINKER=$GNU-gcc" "CC_${LOWER}=$GNU-gcc" \
+        "AR_${LOWER}=$GNU-ar" CARGO_PROFILE_RELEASE_STRIP=symbols \
+        cargo build --release -p fastroute --target "$TRIPLE"
+    BIN="$TARGET_DIR/$TRIPLE/release/fastroute"
+    HOW="gcc cross toolchain $GNU"
 else
+    [ "$ARCH" != ppc64 ] || {
+        echo "error: ppc64 (big endian) needs --native with gcc-$GNU" >&2; exit 1; }
     for tool in zig cargo-zigbuild; do
         command -v "$tool" >/dev/null 2>&1 || {
             echo "error: $tool not found, needed for a binary that runs on" >&2
@@ -70,24 +100,26 @@ else
     CARGO_PROFILE_RELEASE_STRIP=symbols \
         cargo zigbuild --release -p fastroute --target "$TRIPLE.$GLIBC"
     BIN="$TARGET_DIR/$TRIPLE/release/fastroute"
+    HOW="glibc $GLIBC, cargo-zigbuild"
 fi
 [ -x "$BIN" ] || { echo "error: $BIN not built" >&2; exit 1; }
 
 # --- glibc check -----------------------------------------------------------
-NEED_GLIBC=$(objdump -T "$BIN" | sed -n 's/.*GLIBC_\([0-9.]*\).*/\1/p' \
+# readelf reads the ELF of any architecture (objdump only the host one)
+NEED_GLIBC=$(readelf --dyn-syms -W "$BIN" | sed -n 's/.*@GLIBC_\([0-9.]*\).*/\1/p' \
              | sort -t. -k1,1n -k2,2n -k3,3n -u | tail -n 1)
 [ -n "$NEED_GLIBC" ] || NEED_GLIBC=2.2.5
 echo "Binary needs glibc >= $NEED_GLIBC"
-if [ "$NATIVE" = 0 ] && dpkg --compare-versions "$NEED_GLIBC" gt "$MAX_GLIBC"; then
+if [ -n "$CHECK_GLIBC" ] && dpkg --compare-versions "$NEED_GLIBC" gt "$MAX_GLIBC"; then
     echo "error: glibc $NEED_GLIBC is newer than $MAX_GLIBC" >&2
     exit 1
 fi
 
 # Depends from the shared libraries the binary links: libc6 always (libc,
 # libm, libpthread, libdl), libgcc-s1 only when it needs libgcc_s (the
-# native build does, the cargo-zigbuild one does not)
+# gcc builds do, the cargo-zigbuild one does not)
 DEPENDS="libc6 (>= $NEED_GLIBC)"
-if objdump -p "$BIN" | grep -q 'NEEDED *libgcc_s\.so'; then
+if readelf -d "$BIN" | grep -q 'NEEDED.*\[libgcc_s\.so'; then
     DEPENDS="$DEPENDS, libgcc-s1"
 fi
 echo "Depends: $DEPENDS"
@@ -124,7 +156,6 @@ find "$STAGE" -type d -exec chmod 0755 {} +
 NAME=${DEBFULLNAME:-$(git -C "$ROOT" config user.name || echo "fastroute builder")}
 EMAIL=${DEBEMAIL:-$(git -C "$ROOT" config user.email || echo "builder@localhost.localdomain")}
 COMMIT=$(git -C "$ROOT" rev-parse --short HEAD 2>/dev/null || echo unknown)
-if [ "$NATIVE" = 1 ]; then HOW="system toolchain"; else HOW="glibc $GLIBC, cargo-zigbuild"; fi
 cat > "$STAGE/usr/share/doc/fastroute/changelog" <<EOF
 fastroute ($VERSION) unstable; urgency=medium
 

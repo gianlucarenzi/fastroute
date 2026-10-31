@@ -1,0 +1,112 @@
+# Debian packages of fastroute for x86_64, aarch64, powerpc64 (big endian) and
+# powerpc64le, built when a tag vX.Y.Z is pushed (or by hand from the Actions
+# tab) and kept as workflow artifacts.
+#
+# Everything is built in an Ubuntu 20.04 container: its glibc (2.31) is the
+# oldest the packages must run on (Debian 11, Ubuntu 20.04), and it has the gcc
+# cross toolchains for the other architectures. scripts/build-deb.sh --native
+# --arch <arch> builds and packages; MAX_GLIBC makes it fail if the binary
+# needs a newer glibc. Each package is then installed (amd64) or run under
+# qemu (the others) to check it starts and routes a test board.
+name: Debian packages
+
+on:
+  push:
+    tags: ['v[0-9]+.[0-9]+.[0-9]+']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deb:
+    name: deb ${{ matrix.arch }}
+    runs-on: ubuntu-latest
+    container: ubuntu:20.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            triple: x86_64-unknown-linux-gnu
+            gnu: x86_64-linux-gnu
+            qemu: ""
+          - arch: arm64
+            triple: aarch64-unknown-linux-gnu
+            gnu: aarch64-linux-gnu
+            qemu: qemu-aarch64
+          - arch: ppc64el
+            triple: powerpc64le-unknown-linux-gnu
+            gnu: powerpc64le-linux-gnu
+            qemu: qemu-ppc64le
+          - arch: ppc64
+            triple: powerpc64-unknown-linux-gnu
+            gnu: powerpc64-linux-gnu
+            qemu: qemu-ppc64
+    env:
+      DEBIAN_FRONTEND: noninteractive
+      MAX_GLIBC: "2.31"
+      DEBFULLNAME: fastroute CI
+      DEBEMAIL: ${{ github.repository_owner }}@users.noreply.github.com
+    steps:
+      - name: Install build tools
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            ca-certificates curl git gcc libc6-dev binutils xz-utils
+          if [ "${{ matrix.arch }}" != amd64 ]; then
+            apt-get install -y --no-install-recommends \
+              gcc-${{ matrix.gnu }} libc6-dev-${{ matrix.arch }}-cross qemu-user
+          fi
+
+      - name: Install Rust
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
+            sh -s -- -y --profile minimal --default-toolchain stable \
+                     --target ${{ matrix.triple }}
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+
+      - uses: actions/checkout@v4
+
+      - name: Check the tag against Cargo.toml
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          version=$(sed -n 's/^version *= *"\(.*\)"/\1/p' Cargo.toml | head -n 1)
+          if [ "v$version" != "${GITHUB_REF_NAME}" ]; then
+            echo "::error::tag ${GITHUB_REF_NAME} but Cargo.toml has version $version"
+            exit 1
+          fi
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: deb-${{ matrix.arch }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: deb-${{ matrix.arch }}-
+
+      - name: Build the package
+        run: scripts/build-deb.sh --native --arch ${{ matrix.arch }}
+
+      - name: Check the package
+        run: |
+          deb=$(ls dist/fastroute_*_${{ matrix.arch }}.deb)
+          dpkg-deb --info "$deb"
+          dpkg-deb --contents "$deb"
+          if [ -z "${{ matrix.qemu }}" ]; then
+            apt-get install -y "./$deb"
+            run="fastroute"
+          else
+            mkdir -p pkg && dpkg-deb -x "$deb" pkg
+            run="${{ matrix.qemu }} -L /usr/${{ matrix.gnu }} pkg/usr/bin/fastroute"
+          fi
+          $run --version
+          $run -de crates/fr-io/testdata/dsn/synth_order_placed.dsn -do test.ses -mp 5
+          test -s test.ses
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fastroute_${{ matrix.arch }}
+          path: dist/fastroute_*_${{ matrix.arch }}.deb
+          if-no-files-found: error

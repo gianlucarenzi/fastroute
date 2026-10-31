@@ -6,8 +6,8 @@
 
 > **This fork is also the Debian installer of fastroute.**
 > It is [parisxmas/fastroute](https://github.com/parisxmas/fastroute) plus one
-> script, [`scripts/build-deb.sh`](scripts/build-deb.sh), that builds a `.deb` that installs the `fastroute` command in `/usr/bin`. The
-> router itself is unchanged; report router issues upstream.
+> script, [`scripts/build-deb.sh`](scripts/build-deb.sh), that builds a `.deb`
+> installing the `fastroute` command in `/usr/bin`. The router itself is unchanged; report router issues upstream.
 
 ## Debian / Ubuntu package
 

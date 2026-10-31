@@ -83,6 +83,15 @@ if [ "$NATIVE" = 0 ] && dpkg --compare-versions "$NEED_GLIBC" gt "$MAX_GLIBC"; t
     exit 1
 fi
 
+# Depends from the shared libraries the binary links: libc6 always (libc,
+# libm, libpthread, libdl), libgcc-s1 only when it needs libgcc_s (the
+# native build does, the cargo-zigbuild one does not)
+DEPENDS="libc6 (>= $NEED_GLIBC)"
+if objdump -p "$BIN" | grep -q 'NEEDED *libgcc_s\.so'; then
+    DEPENDS="$DEPENDS, libgcc-s1"
+fi
+echo "Depends: $DEPENDS"
+
 # --- package tree ------------------------------------------------------------
 PKG=fastroute_${VERSION}_${ARCH}
 STAGE="$ROOT/target/deb/$PKG"
@@ -135,7 +144,7 @@ Version: $VERSION
 Architecture: $ARCH
 Maintainer: $NAME <$EMAIL>
 Installed-Size: $SIZE
-Depends: libc6 (>= $NEED_GLIBC), libgcc-s1
+Depends: $DEPENDS
 Section: electronics
 Priority: optional
 Homepage: https://github.com/parisxmas/fastroute

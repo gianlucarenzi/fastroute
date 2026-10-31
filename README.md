@@ -17,14 +17,22 @@ release**: the binary is linked against glibc 2.17 with
 [cargo-zigbuild](https://github.com/rust-cross/cargo-zigbuild), and the build
 stops if it would need a glibc newer than 2.31.
 
-Build requirements, once:
+Build requirements, once, on the machine that builds the package (a recent
+system: the Rust toolchain of Debian 11 and Ubuntu 20.04 is too old; tested
+with the rustc 1.85 of Debian 13, or use [rustup](https://rustup.rs)):
 
 ```sh
-sudo apt install cargo dpkg-dev binutils git
-cargo install --locked cargo-zigbuild      # 0.21.8 with the rustc 1.85 of Debian 13
+sudo apt install cargo binutils git        # binutils: objdump for the glibc check
+cargo install --locked cargo-zigbuild      # 0.21.8 is the last one for rustc 1.85
 # zig 0.13 or newer from https://ziglang.org/download/,
 # e.g. unpacked in ~/.local/opt with a link in ~/.local/bin/zig
 ```
+
+`--native` builds need a C compiler instead of zig (`sudo apt install gcc`):
+the mimalloc allocator is C code.
+
+Runtime: the package only depends on `libc6 (>= 2.17)`; the systems that
+install it need nothing else.
 
 Build and install:
 

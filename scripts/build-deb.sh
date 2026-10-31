@@ -24,8 +24,12 @@
 # MAX_GLIBC (default 2.31, Debian 11 and Ubuntu 20.04) for cargo-zigbuild
 # builds, and for --native builds when MAX_GLIBC is set.
 #
-# Usage: scripts/build-deb.sh [--native] [--arch ARCH]
-#          -> dist/fastroute_<version>_<arch>.deb
+# --revision N makes the package version <version>-N (Debian revision, for a
+# new package of the same upstream version; the GitHub workflow takes it from
+# a vX.Y.Z-N tag). Without it the package version is the Cargo.toml one.
+#
+# Usage: scripts/build-deb.sh [--native] [--arch ARCH] [--revision N]
+#          -> dist/fastroute_<version>[-N]_<arch>.deb
 # Install: sudo apt install ./dist/fastroute_<version>_<arch>.deb
 set -eu
 
@@ -36,12 +40,15 @@ CHECK_GLIBC=${MAX_GLIBC:+1}     # MAX_GLIBC given: check it in --native too
 MAX_GLIBC=${MAX_GLIBC:-2.31}    # oldest system the package must run on
 NATIVE=0
 ARCH=""
+REVISION=""
 
 while [ $# -gt 0 ]; do
     case "$1" in
         --native) NATIVE=1; shift ;;
         --arch) [ $# -ge 2 ] || { echo "--arch needs a value" >&2; exit 2; }
                 ARCH=$2; shift 2 ;;
+        --revision) [ $# -ge 2 ] || { echo "--revision needs a value" >&2; exit 2; }
+                REVISION=$2; shift 2 ;;
         -h|--help) awk 'NR > 1 && /^#/ { print; next } NR > 1 { exit }' "$0"; exit 0 ;;
         *) echo "unknown option: $1 (see --help)" >&2; exit 2 ;;
     esac
@@ -58,6 +65,11 @@ done
 
 VERSION=$(sed -n 's/^version *= *"\(.*\)"/\1/p' "$ROOT/Cargo.toml" | head -n 1)
 [ -n "$VERSION" ] || { echo "error: no version in Cargo.toml" >&2; exit 1; }
+case "$REVISION" in
+    "") DEB_VERSION=$VERSION ;;
+    *[!0-9]*) echo "error: --revision must be a number" >&2; exit 2 ;;
+    *) DEB_VERSION=$VERSION-$REVISION ;;
+esac
 HOST_ARCH=$(dpkg --print-architecture)
 ARCH=${ARCH:-$HOST_ARCH}
 case "$ARCH" in
@@ -125,7 +137,7 @@ fi
 echo "Depends: $DEPENDS"
 
 # --- package tree ------------------------------------------------------------
-PKG=fastroute_${VERSION}_${ARCH}
+PKG=fastroute_${DEB_VERSION}_${ARCH}
 STAGE="$ROOT/target/deb/$PKG"
 rm -rf "$STAGE"
 mkdir -p "$STAGE/DEBIAN" "$STAGE/usr/bin" "$STAGE/usr/share/doc/fastroute"
@@ -156,22 +168,25 @@ find "$STAGE" -type d -exec chmod 0755 {} +
 NAME=${DEBFULLNAME:-$(git -C "$ROOT" config user.name || echo "fastroute builder")}
 EMAIL=${DEBEMAIL:-$(git -C "$ROOT" config user.email || echo "builder@localhost.localdomain")}
 COMMIT=$(git -C "$ROOT" rev-parse --short HEAD 2>/dev/null || echo unknown)
-cat > "$STAGE/usr/share/doc/fastroute/changelog" <<EOF
-fastroute ($VERSION) unstable; urgency=medium
+# A package with a Debian revision is not native: its changelog is
+# changelog.Debian (Debian policy 12.7)
+CHANGELOG="$STAGE/usr/share/doc/fastroute/changelog${REVISION:+.Debian}"
+cat > "$CHANGELOG" <<EOF
+fastroute ($DEB_VERSION) unstable; urgency=medium
 
   * Local build of fastroute $VERSION, commit $COMMIT.
   * Built with: $HOW.
 
  -- $NAME <$EMAIL>  $(date -R)
 EOF
-gzip -9n "$STAGE/usr/share/doc/fastroute/changelog"
+gzip -9n "$CHANGELOG"
 
 SIZE=$(du -sk "$STAGE/usr" | cut -f1)
 DESCRIPTION=$(sed -n 's/^description *= *"\(.*\)"/\1/p' \
               "$ROOT/crates/fastroute/Cargo.toml" | head -n 1)
 cat > "$STAGE/DEBIAN/control" <<EOF
 Package: fastroute
-Version: $VERSION
+Version: $DEB_VERSION
 Architecture: $ARCH
 Maintainer: $NAME <$EMAIL>
 Installed-Size: $SIZE

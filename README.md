@@ -53,7 +53,8 @@ endian only this way).
 
 ### Packages built by GitHub Actions
 
-Pushing a tag `vX.Y.Z` (equal to the version in `Cargo.toml`) runs
+Pushing a tag `vX.Y.Z-N` (X.Y.Z equal to the version in `Cargo.toml`, N the
+Debian revision: package version `X.Y.Z-N`) runs
 [`.github/workflows/deb.yml`](.github/workflows/deb.yml), which builds the
 packages for **amd64** (x86_64), **arm64** (aarch64), **ppc64el** (powerpc64
 little endian) and **ppc64** (powerpc64 big endian) and keeps them as
@@ -61,9 +62,12 @@ artifacts of the run (Actions tab → the run → Artifacts). They are built in 
 Ubuntu 20.04 container with the gcc cross toolchains
 (`scripts/build-deb.sh --native --arch <arch>`, glibc 2.31 at most), and each
 one is checked by routing a test board (under qemu for the non-x86 ones).
+The plain `vX.Y.Z` tags come from upstream, so a fork release uses `-N`
+(`scripts/build-deb.sh --revision N` locally).
 
 ```sh
-git tag v0.1.14 && git push origin v0.1.14
+git tag -a v0.1.14-1 -m "Debian packages of fastroute 0.1.14"
+git push origin v0.1.14-1
 ```
 
 Package contents: `/usr/bin/fastroute` (release build, stripped) and

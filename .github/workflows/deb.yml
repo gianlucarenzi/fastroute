@@ -1,6 +1,8 @@
 # Debian packages of fastroute for x86_64, aarch64, powerpc64 (big endian) and
-# powerpc64le, built when a tag vX.Y.Z is pushed (or by hand from the Actions
-# tab) and kept as workflow artifacts.
+# powerpc64le, built when a tag vX.Y.Z or vX.Y.Z-N is pushed (or by hand from
+# the Actions tab) and kept as workflow artifacts. X.Y.Z must be the version in
+# Cargo.toml; N is the Debian revision (package version X.Y.Z-N), for a new
+# package of an upstream version whose vX.Y.Z tag already exists upstream.
 #
 # Everything is built in an Ubuntu 20.04 container: its glibc (2.31) is the
 # oldest the packages must run on (Debian 11, Ubuntu 20.04), and it has the gcc
@@ -12,7 +14,9 @@ name: Debian packages
 
 on:
   push:
-    tags: ['v[0-9]+.[0-9]+.[0-9]+']
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+      - 'v[0-9]+.[0-9]+.[0-9]+-[0-9]+'
   workflow_dispatch:
 
 permissions:
@@ -72,10 +76,16 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v')
         run: |
           version=$(sed -n 's/^version *= *"\(.*\)"/\1/p' Cargo.toml | head -n 1)
-          if [ "v$version" != "${GITHUB_REF_NAME}" ]; then
+          tag=${GITHUB_REF_NAME#v}
+          case "$tag" in
+            *-*) revision=${tag##*-}; tag=${tag%-*} ;;
+            *) revision="" ;;
+          esac
+          if [ "$tag" != "$version" ]; then
             echo "::error::tag ${GITHUB_REF_NAME} but Cargo.toml has version $version"
             exit 1
           fi
+          echo "REVISION=$revision" >> "$GITHUB_ENV"
 
       - uses: actions/cache@v6
         with:
@@ -87,7 +97,9 @@ jobs:
           restore-keys: deb-${{ matrix.arch }}-
 
       - name: Build the package
-        run: scripts/build-deb.sh --native --arch ${{ matrix.arch }}
+        run: |
+          scripts/build-deb.sh --native --arch ${{ matrix.arch }} \
+            ${REVISION:+--revision "$REVISION"}
 
       - name: Check the package
         run: |

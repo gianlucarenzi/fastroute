@@ -119,7 +119,8 @@ if [ "$NATIVE" = 1 ]; then HOW="system toolchain"; else HOW="glibc $GLIBC, cargo
 cat > "$STAGE/usr/share/doc/fastroute/changelog" <<EOF
 fastroute ($VERSION) unstable; urgency=medium
 
-  * Local build of fastroute $VERSION, commit $COMMIT ($HOW).
+  * Local build of fastroute $VERSION, commit $COMMIT.
+  * Built with: $HOW.
 
  -- $NAME <$EMAIL>  $(date -R)
 EOF

@@ -10,6 +10,9 @@
 # --arch <arch> builds and packages; MAX_GLIBC makes it fail if the binary
 # needs a newer glibc. Each package is then installed (amd64) or run under
 # qemu (the others) to check it starts and routes a test board.
+#
+# For a tag, the release job then creates the GitHub release of that tag with
+# the four packages and their SHA256SUMS (a re-run replaces the assets).
 name: Debian packages
 
 on:
@@ -122,3 +125,72 @@ jobs:
           name: fastroute_${{ matrix.arch }}
           path: dist/fastroute_*_${{ matrix.arch }}.deb
           if-no-files-found: error
+
+  release:
+    name: GitHub release
+    needs: deb
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      TAG: ${{ github.ref_name }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: fastroute_*
+          path: dist
+          merge-multiple: true
+
+      - name: Checksums and release notes
+        run: |
+          cd dist
+          ls fastroute_*.deb
+          sha256sum fastroute_*.deb > SHA256SUMS
+          version=${TAG#v}
+          upstream=${version%-*}
+          {
+            echo "Debian packages of fastroute $upstream (package version \`$version\`),"
+            echo "built by the [Debian packages workflow]($RUN_URL) in an Ubuntu 20.04 container."
+            echo
+            echo "They install on **Debian 11 (bullseye), Ubuntu 20.04 (focal) and every newer"
+            echo "release**; each one was checked by routing a test board (under qemu for the"
+            echo "non-x86 ones)."
+            echo
+            echo "| Package | Architecture |"
+            echo "|---|---|"
+            for deb in fastroute_*.deb; do
+              arch=$(dpkg-deb -f "$deb" Architecture)
+              case "$arch" in
+                amd64) desc=x86_64 ;;
+                arm64) desc=aarch64 ;;
+                ppc64el) desc="powerpc64 little endian" ;;
+                ppc64) desc="powerpc64 big endian" ;;
+                *) desc=$arch ;;
+              esac
+              echo "| \`$deb\` | $desc |"
+            done
+            echo
+            echo '```sh'
+            echo "sudo apt install ./fastroute_${version}_<arch>.deb"
+            echo "fastroute --version"
+            echo '```'
+            echo
+            echo "SHA-256 checksums are in \`SHA256SUMS\`."
+          } > ../notes.md
+          cat ../notes.md
+
+      - name: Create the release
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            # re-run of the workflow: replace the assets
+            gh release upload "$TAG" dist/fastroute_*.deb dist/SHA256SUMS --clobber
+          else
+            gh release create "$TAG" --verify-tag \
+              --title "fastroute ${TAG#v} (Debian packages)" \
+              --notes-file notes.md --generate-notes \
+              dist/fastroute_*.deb dist/SHA256SUMS
+          fi

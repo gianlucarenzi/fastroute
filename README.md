@@ -72,8 +72,10 @@ Debian revision: package version `X.Y.Z-N`) runs
 [`.github/workflows/deb.yml`](.github/workflows/deb.yml), which builds the
 packages for **amd64** (x86_64), **arm64** (aarch64), **ppc64el** (powerpc64
 little endian) and **ppc64** (powerpc64 big endian) and keeps them as
-artifacts of the run (Actions tab → the run → Artifacts); from there they are
-attached by hand to a [GitHub release](https://github.com/gianlucarenzi/fastroute/releases).
+artifacts of the run (Actions tab → the run → Artifacts). When all four are
+built and checked, the workflow creates the
+[GitHub release](https://github.com/gianlucarenzi/fastroute/releases) of the
+tag with them and their `SHA256SUMS`.
 They are built in an
 Ubuntu 20.04 container with the gcc cross toolchains
 (`scripts/build-deb.sh --native --arch <arch>`, glibc 2.31 at most), and each

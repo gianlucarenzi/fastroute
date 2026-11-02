@@ -11,7 +11,16 @@
 
 ## Debian / Ubuntu package
 
-One package for **Debian 11 (bullseye), Ubuntu 20.04 (focal) and every newer
+Ready-made packages for amd64, arm64, ppc64el and ppc64 are in the
+[GitHub releases](https://github.com/gianlucarenzi/fastroute/releases)
+(latest: [v0.1.14-2](https://github.com/gianlucarenzi/fastroute/releases/tag/v0.1.14-2),
+with `SHA256SUMS`):
+
+```sh
+sudo apt install ./fastroute_0.1.14-2_amd64.deb
+```
+
+To build it yourself, `scripts/build-deb.sh` makes one package for **Debian 11 (bullseye), Ubuntu 20.04 (focal) and every newer
 release**: the binary is linked against glibc 2.17 with
 [cargo-zigbuild](https://github.com/rust-cross/cargo-zigbuild), and the build
 stops if it would need a glibc newer than 2.31.
@@ -63,7 +72,9 @@ Debian revision: package version `X.Y.Z-N`) runs
 [`.github/workflows/deb.yml`](.github/workflows/deb.yml), which builds the
 packages for **amd64** (x86_64), **arm64** (aarch64), **ppc64el** (powerpc64
 little endian) and **ppc64** (powerpc64 big endian) and keeps them as
-artifacts of the run (Actions tab → the run → Artifacts). They are built in an
+artifacts of the run (Actions tab → the run → Artifacts); from there they are
+attached by hand to a [GitHub release](https://github.com/gianlucarenzi/fastroute/releases).
+They are built in an
 Ubuntu 20.04 container with the gcc cross toolchains
 (`scripts/build-deb.sh --native --arch <arch>`, glibc 2.31 at most), and each
 one is checked by routing a test board (under qemu for the non-x86 ones).

@@ -27,6 +27,11 @@ cargo install --locked cargo-zigbuild      # 0.21.8 is the last one for rustc 1.
 # e.g. unpacked in ~/.local/opt with a link in ~/.local/bin/zig
 ```
 
+When zig or cargo-zigbuild is missing, `scripts/build-deb.sh` installs it in
+the user's home (zig 0.14.1, sha256 checked, in `~/.local/opt` with a link in
+`~/.local/bin/zig`; cargo-zigbuild in `~/.cargo/bin`), no root needed. A
+rustup toolchain in `~/.cargo/bin` is used before an older distro cargo.
+
 `--native` builds need a C compiler instead of zig (`sudo apt install gcc`):
 the mimalloc allocator is C code.
 

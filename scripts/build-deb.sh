@@ -5,9 +5,11 @@
 # By default the binary is cross-linked with cargo-zigbuild against an old
 # glibc (2.17, the same as scripts/build-linux.sh), so the same .deb installs
 # and runs on Debian 11, Ubuntu 20.04 and every newer release. Needs zig and
-# cargo-zigbuild in the PATH (or in ~/.local/bin and ~/.cargo/bin):
-#   cargo install --locked cargo-zigbuild
-#   zig from https://ziglang.org/download/ (0.13 or newer)
+# cargo-zigbuild in the PATH (or in ~/.local/bin and ~/.cargo/bin); when
+# missing they are installed in the user's home, no root needed:
+#   cargo install --locked cargo-zigbuild         (-> ~/.cargo/bin)
+#   zig 0.14.1 from https://ziglang.org/download/ (-> ~/.local/opt, ~/.local/bin/zig)
+# and with rustup the Rust target is added (rustup target add <triple>).
 #
 # --native builds with the system gcc toolchain instead: the package then
 # needs the glibc of that toolchain (written in Depends, so apt refuses it on
@@ -55,7 +57,8 @@ while [ $# -gt 0 ]; do
 done
 [ "$NATIVE" = 1 ] || CHECK_GLIBC=1
 
-PATH="$PATH:$HOME/.local/bin:$HOME/.cargo/bin"
+# ~/.cargo/bin first: a rustup toolchain wins over an older distro cargo
+PATH="$HOME/.cargo/bin:$PATH:$HOME/.local/bin"
 export PATH
 
 for tool in cargo dpkg-deb dpkg readelf; do
@@ -80,6 +83,39 @@ case "$ARCH" in
     *) echo "error: architecture $ARCH not supported" >&2; exit 1 ;;
 esac
 
+# zig is not packaged for Debian 11 / Ubuntu 20.04: when missing it is
+# downloaded from ziglang.org (pinned version, sha256 checked) into
+# ~/.local/opt/zig-<version>, with a link in ~/.local/bin/zig
+ZIG_VERSION=0.14.1
+install_zig() {
+    case "$HOST_ARCH" in
+        amd64)   zarch=x86_64
+                 zsum=24aeeec8af16c381934a6cd7d95c807a8cb2cf7df9fa40d359aa884195c4716c ;;
+        arm64)   zarch=aarch64
+                 zsum=f7a654acc967864f7a050ddacfaa778c7504a0eca8d2b678839c21eea47c992b ;;
+        ppc64el) zarch=powerpc64le
+                 zsum=15523e748efd9224ae164482e5cc1f8c11b035246b9749fb5b00758484f384a1 ;;
+        *) echo "error: zig not found and no download for $HOST_ARCH" >&2
+           echo "(install zig 0.13 or newer, or use --native)" >&2; exit 1 ;;
+    esac
+    for tool in curl tar xz sha256sum; do
+        command -v "$tool" >/dev/null 2>&1 || {
+            echo "error: zig not found, and $tool is needed to download it" >&2; exit 1; }
+    done
+    zname=zig-$zarch-linux-$ZIG_VERSION
+    echo "zig not found, installing $zname in ~/.local/opt..."
+    mkdir -p "$HOME/.local/opt" "$HOME/.local/bin"
+    ztmp=$(mktemp -d)
+    curl -fL --proto '=https' --tlsv1.2 -o "$ztmp/$zname.tar.xz" \
+        "https://ziglang.org/download/$ZIG_VERSION/$zname.tar.xz"
+    echo "$zsum  $ztmp/$zname.tar.xz" | sha256sum -c - >/dev/null || {
+        echo "error: checksum mismatch for $zname.tar.xz" >&2; rm -rf "$ztmp"; exit 1; }
+    rm -rf "$HOME/.local/opt/$zname"
+    tar -xJf "$ztmp/$zname.tar.xz" -C "$HOME/.local/opt"
+    rm -rf "$ztmp"
+    ln -sfn "$HOME/.local/opt/$zname/zig" "$HOME/.local/bin/zig"
+}
+
 # --- build ---------------------------------------------------------------
 cd "$ROOT"
 if [ "$NATIVE" = 1 ] && [ "$ARCH" = "$HOST_ARCH" ]; then
@@ -101,13 +137,14 @@ elif [ "$NATIVE" = 1 ]; then
 else
     [ "$ARCH" != ppc64 ] || {
         echo "error: ppc64 (big endian) needs --native with gcc-$GNU" >&2; exit 1; }
-    for tool in zig cargo-zigbuild; do
-        command -v "$tool" >/dev/null 2>&1 || {
-            echo "error: $tool not found, needed for a binary that runs on" >&2
-            echo "glibc $MAX_GLIBC (see the comment at the top of this script," >&2
-            echo "or use --native for this system only)" >&2
-            exit 1; }
-    done
+    command -v zig >/dev/null 2>&1 || install_zig
+    command -v cargo-zigbuild >/dev/null 2>&1 || {
+        echo "cargo-zigbuild not found, installing it in ~/.cargo/bin..."
+        cargo install --locked cargo-zigbuild; }
+    if command -v rustup >/dev/null 2>&1 &&
+       ! rustup target list --installed | grep -qx "$TRIPLE"; then
+        rustup target add "$TRIPLE"
+    fi
     echo "Building fastroute $VERSION for $TRIPLE, glibc $GLIBC..."
     CARGO_PROFILE_RELEASE_STRIP=symbols \
         cargo zigbuild --release -p fastroute --target "$TRIPLE.$GLIBC"

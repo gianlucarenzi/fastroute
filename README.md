@@ -13,11 +13,11 @@
 
 Ready-made packages for amd64, arm64, ppc64el and ppc64 are in the
 [GitHub releases](https://github.com/gianlucarenzi/fastroute/releases)
-(latest: [v0.1.14-2](https://github.com/gianlucarenzi/fastroute/releases/tag/v0.1.14-2),
+([latest release](https://github.com/gianlucarenzi/fastroute/releases/latest),
 with `SHA256SUMS`):
 
 ```sh
-sudo apt install ./fastroute_0.1.14-2_amd64.deb
+sudo apt install ./fastroute_<version>_<arch>.deb
 ```
 
 To build it yourself, `scripts/build-deb.sh` makes one package for **Debian 11 (bullseye), Ubuntu 20.04 (focal) and every newer
